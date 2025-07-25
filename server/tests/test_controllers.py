@@ -208,3 +208,193 @@ class TestRootEndpoints:
         # This depends on your root endpoint implementation
         # Adjust based on what your root endpoint returns
         assert response.status_code == 200 
+
+
+class TestTaskEndpoints:
+    """Test cases for task API endpoints."""
+
+    def test_create_task_success(self, client, auth_headers, sample_task_data):
+        """Test successful task creation."""
+        response = client.post("/tasks/", json=sample_task_data, headers=auth_headers)
+        
+        assert response.status_code == 201
+        data = response.json()
+        assert data["title"] == sample_task_data["title"]
+        assert data["description"] == sample_task_data["description"]
+        assert data["completed"] is False
+        assert "id" in data
+        assert "user_id" in data
+
+    def test_create_task_unauthorized(self, client, sample_task_data):
+        """Test creating task without authentication."""
+        response = client.post("/tasks/", json=sample_task_data)
+        assert response.status_code == 401
+
+    def test_create_task_invalid_data(self, client, auth_headers):
+        """Test creating task with invalid data."""
+        invalid_data = {"description": "Missing title"}
+        response = client.post("/tasks/", json=invalid_data, headers=auth_headers)
+        assert response.status_code == 422
+
+    def test_read_tasks_success(self, client, auth_headers):
+        """Test reading user's tasks."""
+        # Create some tasks first
+        task_data = {"title": "Test Task", "description": "Test description"}
+        client.post("/tasks/", json=task_data, headers=auth_headers)
+        
+        # Read tasks
+        response = client.get("/tasks/", headers=auth_headers)
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) >= 1
+        assert data[0]["title"] == "Test Task"
+
+    def test_read_tasks_unauthorized(self, client):
+        """Test reading tasks without authentication."""
+        response = client.get("/tasks/")
+        assert response.status_code == 401
+
+    def test_read_tasks_pagination(self, client, auth_headers):
+        """Test reading tasks with pagination."""
+        # Create multiple tasks
+        for i in range(5):
+            task_data = {"title": f"Task {i}", "description": f"Description {i}"}
+            client.post("/tasks/", json=task_data, headers=auth_headers)
+        
+        # Test pagination
+        response = client.get("/tasks/?skip=0&limit=3", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 3
+
+    def test_read_single_task_success(self, client, auth_headers, sample_task_data):
+        """Test reading a specific task."""
+        # Create a task
+        create_response = client.post("/tasks/", json=sample_task_data, headers=auth_headers)
+        task_id = create_response.json()["id"]
+        
+        # Read the task
+        response = client.get(f"/tasks/{task_id}", headers=auth_headers)
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == task_id
+        assert data["title"] == sample_task_data["title"]
+
+    def test_read_single_task_not_found(self, client, auth_headers):
+        """Test reading a non-existent task."""
+        response = client.get("/tasks/99999", headers=auth_headers)
+        assert response.status_code == 404
+
+    def test_read_single_task_unauthorized(self, client, sample_task_data):
+        """Test reading a task without authentication."""
+        response = client.get("/tasks/1")
+        assert response.status_code == 401
+
+    def test_update_task_success(self, client, auth_headers, sample_task_data):
+        """Test successfully updating a task."""
+        # Create a task
+        create_response = client.post("/tasks/", json=sample_task_data, headers=auth_headers)
+        task_id = create_response.json()["id"]
+        
+        # Update the task
+        update_data = {
+            "title": "Updated Title",
+            "description": "Updated description",
+            "completed": True
+        }
+        response = client.put(f"/tasks/{task_id}", json=update_data, headers=auth_headers)
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["title"] == "Updated Title"
+        assert data["description"] == "Updated description"
+        assert data["completed"] is True
+
+    def test_update_task_partial(self, client, auth_headers, sample_task_data):
+        """Test partially updating a task."""
+        # Create a task
+        create_response = client.post("/tasks/", json=sample_task_data, headers=auth_headers)
+        task_id = create_response.json()["id"]
+        original_title = create_response.json()["title"]
+        
+        # Partial update - only completed status
+        update_data = {"completed": True}
+        response = client.put(f"/tasks/{task_id}", json=update_data, headers=auth_headers)
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["completed"] is True
+        assert data["title"] == original_title  # Should remain unchanged
+
+    def test_update_task_not_found(self, client, auth_headers):
+        """Test updating a non-existent task."""
+        update_data = {"title": "Updated Title"}
+        response = client.put("/tasks/99999", json=update_data, headers=auth_headers)
+        assert response.status_code == 404
+
+    def test_update_task_unauthorized(self, client, sample_task_data):
+        """Test updating a task without authentication."""
+        update_data = {"title": "Hacked Title"}
+        response = client.put("/tasks/1", json=update_data)
+        assert response.status_code == 401
+
+    def test_delete_task_success(self, client, auth_headers, sample_task_data):
+        """Test successfully deleting a task."""
+        # Create a task
+        create_response = client.post("/tasks/", json=sample_task_data, headers=auth_headers)
+        task_id = create_response.json()["id"]
+        
+        # Delete the task
+        response = client.delete(f"/tasks/{task_id}", headers=auth_headers)
+        
+        assert response.status_code == 204
+        
+        # Verify it's deleted
+        get_response = client.get(f"/tasks/{task_id}", headers=auth_headers)
+        assert get_response.status_code == 404
+
+    def test_delete_task_not_found(self, client, auth_headers):
+        """Test deleting a non-existent task."""
+        response = client.delete("/tasks/99999", headers=auth_headers)
+        assert response.status_code == 404
+
+    def test_delete_task_unauthorized(self, client):
+        """Test deleting a task without authentication."""
+        response = client.delete("/tasks/1")
+        assert response.status_code == 401
+
+    def test_task_isolation_between_users(self, client, sample_user_data, sample_task_data):
+        """Test that users can only access their own tasks."""
+        # Create first user and their auth headers
+        user1_data = sample_user_data.copy()
+        client.post("/user/register", json=user1_data)
+        login_data1 = {"username": user1_data["email"], "password": user1_data["password"]}
+        token_response1 = client.post("/user/login", data=login_data1)
+        headers1 = {"Authorization": f"Bearer {token_response1.json()['access_token']}"}
+        
+        # Create second user and their auth headers  
+        user2_data = {"email": "user2@test.com", "password": "password123"}
+        client.post("/user/register", json=user2_data)
+        login_data2 = {"username": user2_data["email"], "password": user2_data["password"]}
+        token_response2 = client.post("/user/login", data=login_data2)
+        headers2 = {"Authorization": f"Bearer {token_response2.json()['access_token']}"}
+        
+        # User 1 creates a task
+        task_response = client.post("/tasks/", json=sample_task_data, headers=headers1)
+        task_id = task_response.json()["id"]
+        
+        # User 2 tries to access User 1's task - should fail
+        response = client.get(f"/tasks/{task_id}", headers=headers2)
+        assert response.status_code == 403
+        
+        # User 2 tries to update User 1's task - should fail
+        update_data = {"title": "Hacked title"}
+        response = client.put(f"/tasks/{task_id}", json=update_data, headers=headers2)
+        assert response.status_code == 403
+        
+        # User 2 tries to delete User 1's task - should fail
+        response = client.delete(f"/tasks/{task_id}", headers=headers2)
+        assert response.status_code == 403 

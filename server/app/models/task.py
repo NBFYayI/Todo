@@ -6,7 +6,7 @@ class Task(Base):
     __tablename__ = "tasks"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
     title = Column(String, index=True, nullable=False)
     description = Column(String, index=True, nullable=True)
     due_date = Column(DateTime, nullable=True)

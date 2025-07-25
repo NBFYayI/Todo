@@ -100,4 +100,65 @@ def multiple_users_data():
         {"email": "user1@example.com", "password": "password1"},
         {"email": "user2@example.com", "password": "password2"},
         {"email": "user3@example.com", "password": "password3"},
-    ] 
+    ]
+
+
+@pytest.fixture
+def sample_task_data():
+    """Sample task data for testing."""
+    from datetime import datetime, timedelta
+    
+    return {
+        "title": "Test Task",
+        "description": "This is a test task description",
+        "due_date": (datetime.now() + timedelta(days=7)).isoformat()
+    }
+
+
+@pytest.fixture
+def created_task(db_session, created_user, sample_task_data):
+    """Create a task in the database for testing."""
+    from app.crud.task import create_task
+    from app.schemas.task import TaskCreate
+    
+    task_create = TaskCreate(**sample_task_data)
+    task = create_task(db_session, created_user.id, task_create)
+    return task
+
+
+@pytest.fixture
+def multiple_tasks_data():
+    """Sample data for multiple tasks."""
+    from datetime import datetime, timedelta
+    
+    return [
+        {
+            "title": "Task 1",
+            "description": "First test task",
+            "due_date": (datetime.now() + timedelta(days=1)).isoformat()
+        },
+        {
+            "title": "Task 2", 
+            "description": "Second test task",
+            "due_date": (datetime.now() + timedelta(days=3)).isoformat()
+        },
+        {
+            "title": "Task 3",
+            "description": "Third test task",
+            "due_date": None  # No due date
+        }
+    ]
+
+
+@pytest.fixture 
+def created_multiple_tasks(db_session, created_user, multiple_tasks_data):
+    """Create multiple tasks in the database for testing."""
+    from app.crud.task import create_task
+    from app.schemas.task import TaskCreate
+    
+    tasks = []
+    for task_data in multiple_tasks_data:
+        task_create = TaskCreate(**task_data)
+        task = create_task(db_session, created_user.id, task_create)
+        tasks.append(task)
+    return tasks 
