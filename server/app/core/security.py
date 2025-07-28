@@ -7,7 +7,7 @@ from app.core.config import settings
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from app.database import get_db
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -42,9 +42,9 @@ def decode_access_token(token: str) -> str:
         raise JWTError("Token missing subject")
     return sub
 
-def get_current_user(
+async def get_current_user(
     token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     # Local import breaks the top‐level cycle
     from app.crud.user import get_user_by_id  
@@ -56,7 +56,7 @@ def get_current_user(
     except JWTError:
         raise credentials_exception
 
-    user = get_user_by_id(db, user_id)
+    user = await get_user_by_id(db, int(user_id))
     if not user:
         raise credentials_exception
     return user

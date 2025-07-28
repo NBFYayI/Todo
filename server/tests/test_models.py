@@ -2,6 +2,7 @@
 Tests for database models.
 """
 import pytest
+import pytest_asyncio
 from sqlalchemy.exc import IntegrityError
 
 from app.models.user import User
@@ -10,21 +11,23 @@ from app.models.user import User
 class TestUserModel:
     """Test cases for the User model."""
 
-    def test_create_user(self, db_session):
+    @pytest.mark.asyncio
+    async def test_create_user(self, db_session):
         """Test creating a user with valid data."""
         user = User(
             email="test@example.com",
             hashed_password="hashed_password_123"
         )
         db_session.add(user)
-        db_session.commit()
-        db_session.refresh(user)
+        await db_session.commit()
+        await db_session.refresh(user)
 
         assert user.id is not None
         assert user.email == "test@example.com"
         assert user.hashed_password == "hashed_password_123"
 
-    def test_user_email_unique_constraint(self, db_session):
+    @pytest.mark.asyncio
+    async def test_user_email_unique_constraint(self, db_session):
         """Test that email must be unique."""
         # Create first user
         user1 = User(
@@ -32,7 +35,7 @@ class TestUserModel:
             hashed_password="password1"
         )
         db_session.add(user1)
-        db_session.commit()
+        await db_session.commit()
 
         # Try to create second user with same email
         user2 = User(
@@ -42,33 +45,36 @@ class TestUserModel:
         db_session.add(user2)
         
         with pytest.raises(IntegrityError):
-            db_session.commit()
+            await db_session.commit()
 
-    def test_user_email_required(self, db_session):
+    @pytest.mark.asyncio
+    async def test_user_email_required(self, db_session):
         """Test that email is required."""
         user = User(hashed_password="password123")
         db_session.add(user)
         
         with pytest.raises(IntegrityError):
-            db_session.commit()
+            await db_session.commit()
 
-    def test_user_password_required(self, db_session):
+    @pytest.mark.asyncio
+    async def test_user_password_required(self, db_session):
         """Test that hashed_password is required."""
         user = User(email="test@example.com")
         db_session.add(user)
         
         with pytest.raises(IntegrityError):
-            db_session.commit()
+            await db_session.commit()
 
-    def test_user_representation(self, db_session):
+    @pytest.mark.asyncio
+    async def test_user_representation(self, db_session):
         """Test user model string representation."""
         user = User(
             email="test@example.com",
             hashed_password="hashed_password"
         )
         db_session.add(user)
-        db_session.commit()
-        db_session.refresh(user)
+        await db_session.commit()
+        await db_session.refresh(user)
 
         # Test that the user object has the expected attributes
         assert hasattr(user, 'id')
@@ -80,7 +86,8 @@ class TestUserModel:
 class TestTaskModel:
     """Test cases for the Task model."""
 
-    def test_create_task(self, db_session, created_user):
+    @pytest.mark.asyncio
+    async def test_create_task(self, db_session, created_user):
         """Test creating a task with valid data."""
         from app.models.task import Task
         from datetime import datetime
@@ -94,8 +101,8 @@ class TestTaskModel:
             completed=False
         )
         db_session.add(task)
-        db_session.commit()
-        db_session.refresh(task)
+        await db_session.commit()
+        await db_session.refresh(task)
 
         assert task.id is not None
         assert task.user_id == created_user.id
@@ -106,7 +113,8 @@ class TestTaskModel:
         assert task.created_at is not None
         assert task.updated_at is not None
 
-    def test_task_title_required(self, db_session, created_user):
+    @pytest.mark.asyncio
+    async def test_task_title_required(self, db_session, created_user):
         """Test that title is required."""
         from app.models.task import Task
         
@@ -117,9 +125,10 @@ class TestTaskModel:
         db_session.add(task)
         
         with pytest.raises(IntegrityError):
-            db_session.commit()
+            await db_session.commit()
 
-    def test_task_user_id_required(self, db_session):
+    @pytest.mark.asyncio
+    async def test_task_user_id_required(self, db_session):
         """Test that user_id is required."""
         from app.models.task import Task
         
@@ -130,9 +139,10 @@ class TestTaskModel:
         db_session.add(task)
         
         with pytest.raises(IntegrityError):
-            db_session.commit()
+            await db_session.commit()
 
-    def test_task_optional_fields(self, db_session, created_user):
+    @pytest.mark.asyncio
+    async def test_task_optional_fields(self, db_session, created_user):
         """Test that description and due_date are optional."""
         from app.models.task import Task
         
@@ -141,8 +151,8 @@ class TestTaskModel:
             title="Minimal Task"
         )
         db_session.add(task)
-        db_session.commit()
-        db_session.refresh(task)
+        await db_session.commit()
+        await db_session.refresh(task)
 
         assert task.id is not None
         assert task.title == "Minimal Task"
@@ -150,9 +160,13 @@ class TestTaskModel:
         assert task.due_date is None
         assert task.completed is False  # Should default to False
 
-    def test_task_user_relationship(self, db_session, created_user):
+    @pytest.mark.asyncio
+    async def test_task_user_relationship(self, db_session, created_user):
         """Test the relationship between Task and User."""
         from app.models.task import Task
+        from app.models.user import User
+        from sqlalchemy.orm import selectinload
+        from sqlalchemy import select
         
         task = Task(
             user_id=created_user.id,
@@ -160,8 +174,8 @@ class TestTaskModel:
             description="Testing user relationship"
         )
         db_session.add(task)
-        db_session.commit()
-        db_session.refresh(task)
+        await db_session.commit()
+        await db_session.refresh(task)
 
         # Test task -> user relationship
         assert task.owner is not None
@@ -169,11 +183,16 @@ class TestTaskModel:
         assert task.owner.email == created_user.email
 
         # Test user -> tasks relationship
-        db_session.refresh(created_user)
-        assert len(created_user.tasks) == 1
-        assert created_user.tasks[0].id == task.id
+        # Need to query with selectinload to properly load the relationship in async context
+        result = await db_session.execute(
+            select(User).options(selectinload(User.tasks)).where(User.id == created_user.id)
+        )
+        user_with_tasks = result.scalar_one()
+        assert len(user_with_tasks.tasks) == 1
+        assert user_with_tasks.tasks[0].id == task.id
 
-    def test_task_completed_default(self, db_session, created_user):
+    @pytest.mark.asyncio
+    async def test_task_completed_default(self, db_session, created_user):
         """Test that completed defaults to False."""
         from app.models.task import Task
         
@@ -182,12 +201,13 @@ class TestTaskModel:
             title="Default Completed Test"
         )
         db_session.add(task)
-        db_session.commit()
-        db_session.refresh(task)
+        await db_session.commit()
+        await db_session.refresh(task)
 
         assert task.completed is False
 
-    def test_task_timestamps(self, db_session, created_user):
+    @pytest.mark.asyncio
+    async def test_task_timestamps(self, db_session, created_user):
         """Test that timestamps are set correctly."""
         from app.models.task import Task
         from datetime import datetime, timezone, timedelta
@@ -200,8 +220,8 @@ class TestTaskModel:
             title="Timestamp Test"
         )
         db_session.add(task)
-        db_session.commit()
-        db_session.refresh(task)
+        await db_session.commit()
+        await db_session.refresh(task)
 
         assert task.created_at is not None
         assert task.updated_at is not None

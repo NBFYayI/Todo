@@ -1,37 +1,43 @@
 import os
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import declarative_base
 
-# Use DATABASE_URL env var if provided, otherwise default to local Postgres.
-SQLALCHEMY_DATABASE_URL: str = "postgresql+psycopg://todo_user:1222@localhost:5432/tododb"
+# Use asyncpg for async PostgreSQL connection
+SQLALCHEMY_DATABASE_URL: str = "postgresql+asyncpg://todo_user:1222@localhost:5432/tododb"
 
-# Create engine; pool_pre_ping keeps connections alive.
-engine = create_engine(SQLALCHEMY_DATABASE_URL, pool_pre_ping=True)
+# Create async engine
+engine = create_async_engine(SQLALCHEMY_DATABASE_URL, pool_pre_ping=True)
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+AsyncSessionLocal = async_sessionmaker(
+    engine, 
+    class_=AsyncSession, 
+    expire_on_commit=False
+)
 
 Base = declarative_base()
 
 
-def get_db():
-    """Yield a database session for dependency injection."""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+async def get_db():
+    """Yield an async database session for dependency injection."""
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
 
 
-def init_db() -> None:
+async def init_db() -> None:
     """Import all models and create tables. Call once at startup."""
     import app.models  # noqa: F401 - ensure models are registered with Base
 
-    Base.metadata.create_all(bind=engine)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 
-def reset_db() -> None:
+async def reset_db() -> None:
     """Drop all tables and recreate them. Use for development only."""
     import app.models  # noqa: F401 - ensure models are registered with Base
     
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine) 
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all) 

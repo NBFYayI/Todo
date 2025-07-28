@@ -2,9 +2,9 @@
 Test configuration and fixtures for the Todo API.
 """
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
@@ -12,34 +12,42 @@ from app.main import create_app
 from app.models.user import User
 
 # Test database URL - using SQLite in memory for fast testing
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
+SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
 
 # Create test engine
-engine = create_engine(
+engine = create_async_engine(
     SQLALCHEMY_DATABASE_URL,
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
 
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+TestingSessionLocal = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False
+)
 
 
-@pytest.fixture(scope="function")
-def db_session():
+@pytest_asyncio.fixture(scope="function")
+async def db_session():
     """Create a fresh database session for each test."""
-    Base.metadata.create_all(bind=engine)
-    db = TestingSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-        Base.metadata.drop_all(bind=engine)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    
+    async with TestingSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+    
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
 
 
 @pytest.fixture(scope="function")
 def client(db_session):
     """Create a test client with overridden database dependency."""
-    def override_get_db():
+    async def override_get_db():
         try:
             yield db_session
         finally:
@@ -63,14 +71,14 @@ def sample_user_data():
     }
 
 
-@pytest.fixture
-def created_user(db_session, sample_user_data):
+@pytest_asyncio.fixture
+async def created_user(db_session, sample_user_data):
     """Create a user in the database for testing."""
     from app.crud.user import create_user
     from app.schemas.user import UserCreate
     
     user_create = UserCreate(**sample_user_data)
-    user = create_user(db_session, user_create)
+    user = await create_user(db_session, user_create)
     return user
 
 
@@ -115,14 +123,14 @@ def sample_task_data():
     }
 
 
-@pytest.fixture
-def created_task(db_session, created_user, sample_task_data):
+@pytest_asyncio.fixture
+async def created_task(db_session, created_user, sample_task_data):
     """Create a task in the database for testing."""
     from app.crud.task import create_task
     from app.schemas.task import TaskCreate
     
     task_create = TaskCreate(**sample_task_data)
-    task = create_task(db_session, created_user.id, task_create)
+    task = await create_task(db_session, created_user.id, task_create)
     return task
 
 
@@ -150,8 +158,8 @@ def multiple_tasks_data():
     ]
 
 
-@pytest.fixture 
-def created_multiple_tasks(db_session, created_user, multiple_tasks_data):
+@pytest_asyncio.fixture 
+async def created_multiple_tasks(db_session, created_user, multiple_tasks_data):
     """Create multiple tasks in the database for testing."""
     from app.crud.task import create_task
     from app.schemas.task import TaskCreate
@@ -159,6 +167,6 @@ def created_multiple_tasks(db_session, created_user, multiple_tasks_data):
     tasks = []
     for task_data in multiple_tasks_data:
         task_create = TaskCreate(**task_data)
-        task = create_task(db_session, created_user.id, task_create)
+        task = await create_task(db_session, created_user.id, task_create)
         tasks.append(task)
     return tasks 
